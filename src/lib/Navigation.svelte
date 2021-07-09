@@ -6,6 +6,7 @@
 </script>
 
 <nav class="
+        relative
         grid
         grid-flow-col
         md:grid-flow-row 
@@ -18,6 +19,7 @@
         border-grey-600 
         overflow-hidden
         text-white
+        z-[2]
     "
 >
     <a href="/" class="justify-self-start self-center md:place-self-center lg:justify-self-start transform translate-x-8 md:translate-x-0 lg:translate-x-8">

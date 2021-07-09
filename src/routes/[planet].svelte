@@ -1,14 +1,23 @@
 <script context="module">
     import PLANETDATA from '$lib/data.json'
+    import { tweened } from 'svelte/motion'
+    import { cubicOut } from 'svelte/easing'
 
-    export async function load({ page }) {
+    let tweenedInfo = tweened({
+        rotation: 0,
+        revolution: 0,
+        radius: 0,
+        temperature: 0,
+    },{ duration: 600, easing: cubicOut, })
+
+    export function load({ page }) {
         const planet = page.params.planet
         const response = PLANETDATA.find( ({ name }) => name.toLowerCase() == planet.toLowerCase() )
 
         if (response != null || response != undefined) {         
             return {
                 props: {
-                    planet, response
+                    planet, response, tweenedInfo
                 }
             }
         } else {
@@ -29,11 +38,24 @@
     import InfoCard from '$lib/InfoCard.svelte'
 
     export let planet;
-    export let response
+    export let response;
+    export let tweenedInfo;
+
+    const stripChars = (char) => !isNaN( new Number(char) )
+    const stripToInt = (value) => parseInt( value.split('').filter(stripChars).join('') )
+    $: tweenedInfo.set({
+        rotation: stripToInt(response["rotation"]),
+        revolution: stripToInt(response["revolution"]),
+        radius: stripToInt(response["radius"]),
+        temperature: stripToInt(response["temperature"]),
+    })
+
+    const zipInfo = (key, foo) => `${Math.round(foo[key])} ${response[key].split(' ')[1]}`
 
     let isMD = false
     onMount( () => {
         isMD = window.innerWidth > 700
+        window.onresize = () => isMD = window.innerWidth > 700
     } )
 
     $: primeColor = COLORS[ planet.toLowerCase() ]
@@ -130,12 +152,13 @@
             transform 
             lg:translate-y-5
             mb-10
-            md:mb-0
+            md:mb-5
+            lg:mb-0
         ">
-            <InfoCard title="rotation time" content={response["rotation"]}/>
-            <InfoCard title="revolution time" content={response["revolution"]}/>
-            <InfoCard title="radius" content={response["radius"]}/>
-            <InfoCard title="average temp." content={response["temperature"]}/>
+            <InfoCard title="rotation time" content={zipInfo("rotation", $tweenedInfo)}/>
+            <InfoCard title="revolution time" content={zipInfo("revolution", $tweenedInfo)}/>
+            <InfoCard title="radius" content={zipInfo("radius", $tweenedInfo)}/>
+            <InfoCard title="average temp." content={`${Math.round($tweenedInfo["temperature"])}°c`}/>
         </div>
     </div>
 </main>

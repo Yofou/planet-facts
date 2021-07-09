@@ -2240,6 +2240,12 @@ async function respond(incoming, options2, state = {}) {
 // node_modules/svelte/internal/index.mjs
 function noop2() {
 }
+var identity = (x) => x;
+function assign(tar, src2) {
+  for (const k in src2)
+    tar[k] = src2[k];
+  return tar;
+}
 function run(fn) {
   return fn();
 }
@@ -2265,7 +2271,33 @@ function subscribe(store, ...callbacks) {
   const unsub = store.subscribe(...callbacks);
   return unsub.unsubscribe ? () => unsub.unsubscribe() : unsub;
 }
+var is_client = typeof window !== "undefined";
+var now = is_client ? () => window.performance.now() : () => Date.now();
+var raf = is_client ? (cb) => requestAnimationFrame(cb) : noop2;
 var tasks = new Set();
+function run_tasks(now2) {
+  tasks.forEach((task) => {
+    if (!task.c(now2)) {
+      tasks.delete(task);
+      task.f();
+    }
+  });
+  if (tasks.size !== 0)
+    raf(run_tasks);
+}
+function loop(callback) {
+  let task;
+  if (tasks.size === 0)
+    raf(run_tasks);
+  return {
+    promise: new Promise((fulfill) => {
+      tasks.add(task = { c: callback, f: fulfill });
+    }),
+    abort() {
+      tasks.delete(task);
+    }
+  };
+}
 var active_docs = new Set();
 var current_component;
 function set_current_component(component) {
@@ -2438,6 +2470,12 @@ if (typeof HTMLElement === "function") {
   };
 }
 
+// node_modules/svelte/easing/index.mjs
+function cubicOut(t) {
+  const f = t - 1;
+  return f * f * f + 1;
+}
+
 // node_modules/svelte/store/index.mjs
 var subscriber_queue2 = [];
 function writable2(value, start = noop2) {
@@ -2484,6 +2522,104 @@ function writable2(value, start = noop2) {
     };
   }
   return { set, update, subscribe: subscribe2 };
+}
+
+// node_modules/svelte/motion/index.mjs
+function is_date(obj) {
+  return Object.prototype.toString.call(obj) === "[object Date]";
+}
+function get_interpolator(a, b) {
+  if (a === b || a !== a)
+    return () => a;
+  const type = typeof a;
+  if (type !== typeof b || Array.isArray(a) !== Array.isArray(b)) {
+    throw new Error("Cannot interpolate values of different type");
+  }
+  if (Array.isArray(a)) {
+    const arr = b.map((bi, i) => {
+      return get_interpolator(a[i], bi);
+    });
+    return (t) => arr.map((fn) => fn(t));
+  }
+  if (type === "object") {
+    if (!a || !b)
+      throw new Error("Object cannot be null");
+    if (is_date(a) && is_date(b)) {
+      a = a.getTime();
+      b = b.getTime();
+      const delta = b - a;
+      return (t) => new Date(a + t * delta);
+    }
+    const keys = Object.keys(b);
+    const interpolators = {};
+    keys.forEach((key) => {
+      interpolators[key] = get_interpolator(a[key], b[key]);
+    });
+    return (t) => {
+      const result = {};
+      keys.forEach((key) => {
+        result[key] = interpolators[key](t);
+      });
+      return result;
+    };
+  }
+  if (type === "number") {
+    const delta = b - a;
+    return (t) => a + t * delta;
+  }
+  throw new Error(`Cannot interpolate ${type} values`);
+}
+function tweened(value, defaults = {}) {
+  const store = writable2(value);
+  let task;
+  let target_value = value;
+  function set(new_value, opts) {
+    if (value == null) {
+      store.set(value = new_value);
+      return Promise.resolve();
+    }
+    target_value = new_value;
+    let previous_task = task;
+    let started = false;
+    let { delay = 0, duration = 400, easing = identity, interpolate = get_interpolator } = assign(assign({}, defaults), opts);
+    if (duration === 0) {
+      if (previous_task) {
+        previous_task.abort();
+        previous_task = null;
+      }
+      store.set(value = target_value);
+      return Promise.resolve();
+    }
+    const start = now() + delay;
+    let fn;
+    task = loop((now2) => {
+      if (now2 < start)
+        return true;
+      if (!started) {
+        fn = interpolate(value, new_value);
+        if (typeof duration === "function")
+          duration = duration(value, new_value);
+        started = true;
+      }
+      if (previous_task) {
+        previous_task.abort();
+        previous_task = null;
+      }
+      const elapsed = now2 - start;
+      if (elapsed > duration) {
+        store.set(value = new_value);
+        return false;
+      }
+      store.set(value = fn(easing(elapsed / duration)));
+      return true;
+    });
+    return task.promise;
+  }
+  return {
+    set,
+    update: (fn, opts) => set(fn(target_value, value), opts),
+    subscribe: store.subscribe
+  };
 }
 
 // .svelte-kit/output/server/app.js
@@ -2557,9 +2693,9 @@ function init(settings) {
     amp: false,
     dev: false,
     entry: {
-      file: "/./_app/start-cdbac52e.js",
+      file: "/./_app/start-e076e9b8.js",
       css: ["/./_app/assets/start-a8cd1609.css"],
-      js: ["/./_app/start-cdbac52e.js", "/./_app/chunks/vendor-b86df546.js", "/./_app/chunks/singletons-bb9012b7.js"]
+      js: ["/./_app/start-e076e9b8.js", "/./_app/chunks/vendor-aec2e272.js", "/./_app/chunks/singletons-bb9012b7.js"]
     },
     fetched: void 0,
     floc: false,
@@ -2635,7 +2771,7 @@ var module_lookup = {
     return _planet_;
   })
 };
-var metadata_lookup = { "src/routes/__layout.svelte": { "entry": "/./_app/pages/__layout.svelte-09bb1f29.js", "css": ["/./_app/assets/pages/__layout.svelte-690baba2.css"], "js": ["/./_app/pages/__layout.svelte-09bb1f29.js", "/./_app/chunks/vendor-b86df546.js", "/./_app/chunks/data-c8278da0.js", "/./_app/chunks/colors-13a949ed.js", "/./_app/chunks/singletons-bb9012b7.js"], "styles": null }, ".svelte-kit/build/components/error.svelte": { "entry": "/./_app/error.svelte-a9049230.js", "css": [], "js": ["/./_app/error.svelte-a9049230.js", "/./_app/chunks/vendor-b86df546.js"], "styles": null }, "src/routes/index.svelte": { "entry": "/./_app/pages/index.svelte-81e7033c.js", "css": [], "js": ["/./_app/pages/index.svelte-81e7033c.js", "/./_app/chunks/vendor-b86df546.js", "/./_app/chunks/data-c8278da0.js"], "styles": null }, "src/routes/404.svelte": { "entry": "/./_app/pages/404.svelte-55fcd44e.js", "css": [], "js": ["/./_app/pages/404.svelte-55fcd44e.js", "/./_app/chunks/vendor-b86df546.js"], "styles": null }, "src/routes/[planet].svelte": { "entry": "/./_app/pages/[planet].svelte-80ed5297.js", "css": [], "js": ["/./_app/pages/[planet].svelte-80ed5297.js", "/./_app/chunks/vendor-b86df546.js", "/./_app/chunks/data-c8278da0.js", "/./_app/chunks/colors-13a949ed.js"], "styles": null } };
+var metadata_lookup = { "src/routes/__layout.svelte": { "entry": "/./_app/pages/__layout.svelte-791a2fa6.js", "css": ["/./_app/assets/pages/__layout.svelte-cc9c3434.css"], "js": ["/./_app/pages/__layout.svelte-791a2fa6.js", "/./_app/chunks/vendor-aec2e272.js", "/./_app/chunks/data-c8278da0.js", "/./_app/chunks/colors-13a949ed.js", "/./_app/chunks/singletons-bb9012b7.js"], "styles": null }, ".svelte-kit/build/components/error.svelte": { "entry": "/./_app/error.svelte-4a352dd0.js", "css": [], "js": ["/./_app/error.svelte-4a352dd0.js", "/./_app/chunks/vendor-aec2e272.js"], "styles": null }, "src/routes/index.svelte": { "entry": "/./_app/pages/index.svelte-8d29bfc0.js", "css": [], "js": ["/./_app/pages/index.svelte-8d29bfc0.js", "/./_app/chunks/vendor-aec2e272.js", "/./_app/chunks/data-c8278da0.js"], "styles": null }, "src/routes/404.svelte": { "entry": "/./_app/pages/404.svelte-3138478c.js", "css": [], "js": ["/./_app/pages/404.svelte-3138478c.js", "/./_app/chunks/vendor-aec2e272.js"], "styles": null }, "src/routes/[planet].svelte": { "entry": "/./_app/pages/[planet].svelte-eb16e094.js", "css": [], "js": ["/./_app/pages/[planet].svelte-eb16e094.js", "/./_app/chunks/vendor-aec2e272.js", "/./_app/chunks/data-c8278da0.js", "/./_app/chunks/colors-13a949ed.js"], "styles": null } };
 async function load_component(file) {
   return {
     module: await module_lookup[file](),
@@ -2859,7 +2995,7 @@ var Navigation = create_ssr_component(($$result, $$props, $$bindings, slots) => 
   $$unsubscribe_isDrawerOpen = subscribe(isDrawerOpen, (value) => $isDrawerOpen = value);
   const planets = PLANETDATA.map(({ name }) => name);
   $$unsubscribe_isDrawerOpen();
-  return `<nav class="${"\r\n        grid\r\n        grid-flow-col\r\n        md:grid-flow-row \r\n        lg:grid-flow-col \r\n        w-screen\r\n        h-[85px]\r\n        md:h-[159px] \r\n        lg:h-[85px] \r\n        border-b-[1px]\r\n        border-grey-600 \r\n        overflow-hidden\r\n        text-white\r\n    "}"><a href="${"/"}" class="${"justify-self-start self-center md:place-self-center lg:justify-self-start transform translate-x-8 md:translate-x-0 lg:translate-x-8"}"><h1 class="${"font-ant text-[28px] tracking-[-1.05px] leading-[25px] uppercase"}">The Planets</h1></a>
+  return `<nav class="${"\r\n        relative\r\n        grid\r\n        grid-flow-col\r\n        md:grid-flow-row \r\n        lg:grid-flow-col \r\n        w-screen\r\n        h-[85px]\r\n        md:h-[159px] \r\n        lg:h-[85px] \r\n        border-b-[1px]\r\n        border-grey-600 \r\n        overflow-hidden\r\n        text-white\r\n        z-[2]\r\n    "}"><a href="${"/"}" class="${"justify-self-start self-center md:place-self-center lg:justify-self-start transform translate-x-8 md:translate-x-0 lg:translate-x-8"}"><h1 class="${"font-ant text-[28px] tracking-[-1.05px] leading-[25px] uppercase"}">The Planets</h1></a>
     <ul class="${"grid grid-flow-col place-self-center w-min h-full gap-8 justify-self-end md:justify-self-center lg:justify-self-end md:mr-0 lg:mr-10"}">${each(planets, (planet) => `<li${add_attribute("class", `hidden md:grid h-full place-content-center transition-all hover:border-t-4 border-${COLORS[planet.toLowerCase()]}`, 0)}><a${add_attribute("href", `/${planet}`, 0)} class="${"uppercase font-spart font-bold hover:opacity-100 opacity-75 text-xs leading-[25px] transition-opacity"}">${escape2(planet)}</a>
             </li>`)}
         <li class="${[
@@ -2872,7 +3008,7 @@ var NavigationDrawer = create_ssr_component(($$result, $$props, $$bindings, slot
   $$unsubscribe_isDrawerOpen = subscribe(isDrawerOpen, (value) => value);
   const planets = PLANETDATA.map(({ name }) => name);
   $$unsubscribe_isDrawerOpen();
-  return `<section class="${"grid w-full h-full bg-blue-900 py-[3rem]"}"><ul class="${"grid justify-self-center grid-flow-row w-[85%] max-h-8 gap-[20px]"}">${each(planets, (planet) => `<li class="${"w-full h-16 grid grid-cols-[1fr,5fr,1fr] grid-rows-1 border-b-[1px] border-white border-opacity-25 cursor-pointer"}"><div class="${"place-self-center w-[20px] h-[20px] rounded-full bg-" + escape2(COLORS[planet.toLowerCase()])}"></div>
+  return `<section class="${"relative grid w-full h-full bg-blue-900 py-[3rem] z-[1]"}"><ul class="${"grid justify-self-center grid-flow-row w-[85%] max-h-8 gap-[20px]"}">${each(planets, (planet) => `<li class="${"w-full h-16 grid grid-cols-[1fr,5fr,1fr] grid-rows-1 border-b-[1px] border-white border-opacity-25 cursor-pointer"}"><div class="${"place-self-center w-[20px] h-[20px] rounded-full bg-" + escape2(COLORS[planet.toLowerCase()])}"></div>
                 <p class="${"self-center text-white font-spart text-[15px] leading-[25px] font-bold"}">${escape2(planet.toUpperCase())}</p>
                 <img class="${"place-self-center"}" src="${"/assets/icon-chevron.svg"}" alt="${""}">
             </li>`)}</ul></section>`;
@@ -2928,14 +3064,14 @@ var Routes = create_ssr_component(($$result, $$props, $$bindings, slots) => {
   let index2 = 0;
   const interval = setInterval(() => {
     index2 += 1;
-  }, 10 * 1e3);
+  }, 5 * 1e3);
   onDestroy(() => clearInterval(interval));
   currentPlanet = planets[index2 % planets.length];
   return `${$$result.head += `${$$result.title = `<title>THE PLANETS | HOME</title>`, ""}`, ""}
 
-<main class="${"grid grid-cols-1 grid-rows-[2fr,3fr] md:grid-rows-[1fr,2fr] w-full h-full text-white"}"><h1 class="${"font-ant text-[6rem] md:text-[9rem] lg:text-[10rem] tracking-[-1.05px] uppercase justify-self-center self-end z-10"}">the planets</h1>
+<main class="${"grid grid-cols-1 grid-rows-[200px,min-content,1fr] md:grid-rows-[300px,min-content,2fr] w-full h-full text-white overflow-hidden"}"><h1 class="${"font-ant text-[6rem] md:text-[9rem] lg:text-[10rem] tracking-[-1.05px] uppercase justify-self-center self-end z-10"}">the planets</h1>
     <p class="${"font-spart text-[0.9rem] md:text-[1.5rem] text-center opacity-60 tracking-wider z-10"}">Adventure the depths of our solar system with every click</p>
-    <img class="${"\n        absolute \n        top-[75%] \n        left-1/2 \n        transform \n        -translate-x-1/2 \n        -translate-y-1/2 \n        scale-[0.6] \n        md:scale-75 \n        z-0\n        "}"${add_attribute("src", images[currentPlanet], 0)} alt="${""}"></main>`;
+    <img class="${"\n        col-start-1\n        col-end-[-1]\n        row-start-3\n        row-end-4\n        justify-self-center\n        md:mt-[4rem]\n        transform \n        scale-[0.6]\n        md:scale-75 \n        z-0\n        "}"${add_attribute("src", images[currentPlanet], 0)} alt="${""}"></main>`;
 });
 var index = /* @__PURE__ */ Object.freeze({
   __proto__: null,
@@ -2995,11 +3131,17 @@ var InfoCard = create_ssr_component(($$result, $$props, $$bindings, slots) => {
   return `<div class="${"\r\n    grid\r\n    grid-flow-col\r\n    place-self-center\r\n    md:block\r\n    w-[90%]\r\n    md:w-[164px]\r\n    lg:w-[255px]\r\n    h-12\r\n    md:h-[88px]\r\n    lg:h-32 \r\n    text-white \r\n    border \r\n    border-grey-600 \r\n    px-[15px]\r\n    lg:px-[23px]\r\n    py-[10px]\r\n    lg:py-[20px]"}"><p class="${"self-center opacity-50 text-[8px] lg:text-[11px] leading-4 md:leading-[25px] tracking-[0.73px] md:tracking-normal font-spart font-bold uppercase"}">${escape2(title)}</p>
     <p class="${"self-center justify-self-end font-ant font-medium text-[20px] md:text-2xl lg:text-[40px] -tracking-[0.9px] lg:-tracking-[1.5px] uppercase"}">${escape2(content)}</p></div>`;
 });
-async function load({ page }) {
+var tweenedInfo = tweened({
+  rotation: 0,
+  revolution: 0,
+  radius: 0,
+  temperature: 0
+}, { duration: 600, easing: cubicOut });
+function load({ page }) {
   const planet = page.params.planet;
   const response = PLANETDATA.find(({ name }) => name.toLowerCase() == planet.toLowerCase());
   if (response != null || response != void 0) {
-    return { props: { planet, response } };
+    return { props: { planet, response, tweenedInfo } };
   } else {
     return { status: "301", redirect: "/404" };
   }
@@ -3008,20 +3150,38 @@ var U5Bplanetu5D = create_ssr_component(($$result, $$props, $$bindings, slots) =
   let primeColor;
   let stageTypes;
   let images;
+  let $tweenedInfo, $$unsubscribe_tweenedInfo;
   let { planet } = $$props;
   let { response } = $$props;
+  let { tweenedInfo: tweenedInfo2 } = $$props;
+  $$unsubscribe_tweenedInfo = subscribe(tweenedInfo2, (value) => $tweenedInfo = value);
+  const stripChars = (char) => !isNaN(new Number(char));
+  const stripToInt = (value) => parseInt(value.split("").filter(stripChars).join(""));
+  const zipInfo = (key, foo) => `${Math.round(foo[key])} ${response[key].split(" ")[1]}`;
   let isMD = false;
   onMount(() => {
     isMD = window.innerWidth > 700;
+    window.onresize = () => isMD = window.innerWidth > 700;
   });
   let stage = 0;
   if ($$props.planet === void 0 && $$bindings.planet && planet !== void 0)
     $$bindings.planet(planet);
   if ($$props.response === void 0 && $$bindings.response && response !== void 0)
     $$bindings.response(response);
+  if ($$props.tweenedInfo === void 0 && $$bindings.tweenedInfo && tweenedInfo2 !== void 0)
+    $$bindings.tweenedInfo(tweenedInfo2);
+  {
+    tweenedInfo2.set({
+      rotation: stripToInt(response["rotation"]),
+      revolution: stripToInt(response["revolution"]),
+      radius: stripToInt(response["radius"]),
+      temperature: stripToInt(response["temperature"])
+    });
+  }
   primeColor = COLORS[planet.toLowerCase()];
   stageTypes = ["overview", "structure", "geology"].map((type) => response[type]);
   images = Object.entries(response.images).map(([_, value]) => value);
+  $$unsubscribe_tweenedInfo();
   return `${$$result.head += `${$$result.title = `<title>THE PLANETS | ${escape2(planet.toUpperCase())}</title>`, ""}`, ""}
 
 <main class="${"grid w-full h-full text-white font-spart"}"><div class="${"\r\n        grid\r\n        place-self-center\r\n        w-full\r\n        md:w-max\r\n        md:max-w-[1100px]\r\n        min-h-full\r\n        md:min-h-[auto]\r\n        lg:min-h-[75%]\r\n        grid-cols-[1fr,1fr]\r\n        lg:grid-cols-[3fr,2fr]\r\n        lg:gap-[20px]\r\n    "}"><div class="${"\r\n            grid\r\n            relative\r\n            col-start-1 col-end-3\r\n            row-start-2 row-end-3\r\n            md:row-start-1 md:row-end-2 \r\n            lg:col-start-1 lg:col-end-2 \r\n            lg:row-start-1 lg:row-end-3\r\n            min-w-full\r\n            h-[300px]\r\n            md:h-[500px]\r\n            place-content-center\r\n        "}"><img${add_attribute("src", images[stage], 0)} class="${"place-self-center transition-transform transform scale-[calc(224/582)] md:scale-[calc(369/582)] lg:scale-100"}" alt="${""}">
@@ -3053,21 +3213,21 @@ var U5Bplanetu5D = create_ssr_component(($$result, $$props, $$bindings, slots) =
     content: isMD ? "surface geology" : "surface"
   }, {}, {})}</div>
     
-        <div class="${"\r\n            grid\r\n            grid-flow-row\r\n            md:grid-flow-col \r\n            w-full md:w-min gap-[11px] \r\n            lg:gap-[30px] \r\n            mt-5 \r\n            col-start-1 col-end-3\r\n            row-start-4 row-end-5\r\n            md:row-start-3 md:row-end-4 \r\n            place-self-center \r\n            transform \r\n            lg:translate-y-5\r\n            mb-10\r\n            md:mb-0\r\n        "}">${validate_component(InfoCard, "InfoCard").$$render($$result, {
+        <div class="${"\r\n            grid\r\n            grid-flow-row\r\n            md:grid-flow-col \r\n            w-full md:w-min gap-[11px] \r\n            lg:gap-[30px] \r\n            mt-5 \r\n            col-start-1 col-end-3\r\n            row-start-4 row-end-5\r\n            md:row-start-3 md:row-end-4 \r\n            place-self-center \r\n            transform \r\n            lg:translate-y-5\r\n            mb-10\r\n            md:mb-5\r\n            lg:mb-0\r\n        "}">${validate_component(InfoCard, "InfoCard").$$render($$result, {
     title: "rotation time",
-    content: response["rotation"]
+    content: zipInfo("rotation", $tweenedInfo)
   }, {}, {})}
             ${validate_component(InfoCard, "InfoCard").$$render($$result, {
     title: "revolution time",
-    content: response["revolution"]
+    content: zipInfo("revolution", $tweenedInfo)
   }, {}, {})}
             ${validate_component(InfoCard, "InfoCard").$$render($$result, {
     title: "radius",
-    content: response["radius"]
+    content: zipInfo("radius", $tweenedInfo)
   }, {}, {})}
             ${validate_component(InfoCard, "InfoCard").$$render($$result, {
     title: "average temp.",
-    content: response["temperature"]
+    content: `${Math.round($tweenedInfo["temperature"])}\xB0c`
   }, {}, {})}</div></div></main>`;
 });
 var _planet_ = /* @__PURE__ */ Object.freeze({
